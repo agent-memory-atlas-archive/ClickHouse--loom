@@ -11,6 +11,7 @@ from typing import Any
 
 from server.core.errors import VectorCapacityError
 from server.core.shielded import to_its_end
+from server.core.vectors.admission import _without_admission_wait
 from server.memory.api.models_search import _MemorySearchHit
 from server.memory.app.search.context import SearchContext
 from server.memory.app.search.vector_legs import _search_query_for, _wire_hit
@@ -115,9 +116,10 @@ async def _run_set_expansion(ctx: SearchContext) -> None:
         default=1.0,
     )
     try:
-        per_phrase = await _supplemental_reads(
-            *[_supplemental_leg(ctx, ph, leg_top_k, seen_keys) for ph in phrases]
-        )
+        with _without_admission_wait():
+            per_phrase = await _supplemental_reads(
+                *[_supplemental_leg(ctx, ph, leg_top_k, seen_keys) for ph in phrases]
+            )
     except VectorCapacityError:
         raise
     except Exception as e:  # noqa: BLE001 — additive legs
@@ -174,8 +176,9 @@ async def _run_sub_queries(ctx: SearchContext) -> None:
     else:
         sub_top_k = max(5, input.top_k // max(1, len(ctx.sub_queries)))
 
-    sub_results_by_query = await _supplemental_reads(
-        *[_supplemental_leg(ctx, sq, sub_top_k, seen_keys) for sq in ctx.sub_queries]
-    )
+    with _without_admission_wait():
+        sub_results_by_query = await _supplemental_reads(
+            *[_supplemental_leg(ctx, sq, sub_top_k, seen_keys) for sq in ctx.sub_queries]
+        )
     for sub_hits in sub_results_by_query:
         ctx.all_hits.extend(sub_hits)

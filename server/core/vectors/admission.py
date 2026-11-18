@@ -29,6 +29,17 @@ class VectorWork:
 
 
 _work: ContextVar[VectorWork | None] = ContextVar("vector_statement_work", default=None)
+_without_wait: ContextVar[bool] = ContextVar("vector_admission_without_wait", default=False)
+
+
+@contextmanager
+def _without_admission_wait() -> Iterator[None]:
+    """Refuse capacity waits in completion-sensitive supplemental reads."""
+    token = _without_wait.set(True)
+    try:
+        yield
+    finally:
+        _without_wait.reset(token)
 
 
 @contextmanager
@@ -143,9 +154,9 @@ class _Admission:
             if not org.queue and org.held + work.weight <= c:
                 org.held += work.weight
                 return org, None
-            if org.waiting + work.weight > w:
+            if _without_wait.get() or org.waiting + work.weight > w:
                 raise VectorAdmissionError(
-                    "the org vector queue is full", reason="org_queue", retry_after_s=1
+                    "org vector capacity is unavailable", reason="org_queue", retry_after_s=1
                 )
             waiter = _Waiter(work.weight, asyncio.get_running_loop().create_future())
             org.queue.append(waiter)

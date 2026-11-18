@@ -1019,7 +1019,7 @@ class CHClient:
             raise
         finally:
             self._inflight[gen] = self._inflight.get(gen, 1) - 1
-            if current_work() is None:
+            if current_work() is None or self._inflight.get(gen, 0) > 0 or gen not in self._retired:
                 await self._retire_if_done(gen)
             else:
                 try:

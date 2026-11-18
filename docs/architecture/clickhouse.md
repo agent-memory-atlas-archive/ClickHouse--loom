@@ -1039,6 +1039,29 @@ partial acquisition. Lower live limits refuse new reservations while existing
 charges drain; an overweight queued statement refuses instead of blocking its
 successors. Disabling the existing connection gate refuses new vector work.
 
+Sub-query and set-expansion phrases share a completion-sensitive duplicate set.
+Their vector statements take an immediate atomic grant or refuse the complete read
+with `VECTOR_CAPACITY_REFUSED` and reason `org_queue`; they never join an org wait
+queue or pass an older waiter. Owned siblings finish cancellation before the refusal
+returns. Other vector owners retain bounded FIFO waits. The policy is inherited by
+child tasks independently of statement attribution and resets when the phrase owner
+exits. Admitted work still holds its charge through connection waits, retries and
+local retirement.
+
+With no competing work, two phrases over one namespace can require eight weighted
+units; two namespaces can require sixteen. Actual overlap determines admission,
+so a nine-namespace fact-only read can succeed at the default sixteen-unit ceiling.
+It is not refused from input counts alone. Wide shapes, including thirty-three
+namespaces and eight phrases, can refuse even at the default ceiling. A two-unit
+ceiling can refuse overlapping weighted statements. These are explicit capacity
+failures, not partial successful rankings. Request frequency and representative
+refusal rates require deployment qualification.
+
+The admitted and queued unit bounds do not bound eager task objects created by
+upstream producers. Supplemental phrases retain eager scheduling and have no
+four-task producer window. There is no established composed maximum fanout or
+process-memory bound from these admission limits alone.
+
 Every vector attempt has finite time and memory budgets and a native throw ceiling
 of one million read rows by default. Versions, joins and several namespaces can
 reach that ceiling before one million logical keys. Admission and native refusals
