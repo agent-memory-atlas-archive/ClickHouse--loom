@@ -183,7 +183,7 @@ class _Admission:
             raise
 
     def _forget(self, name: str, org: _Org) -> None:
-        if not org.held and not org.queue:
+        if self.orgs.get(name) is org and not org.held and not org.queue:
             self.orgs.pop(name, None)
 
     def leave(self, work: VectorWork, org: _Org) -> None:
