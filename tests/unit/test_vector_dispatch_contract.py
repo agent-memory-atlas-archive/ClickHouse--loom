@@ -82,6 +82,7 @@ _CLASSIFIED = {
         (),
     ),
     "server/core/ch.py:CHClient._query_attempts": (0, (("''", "()", "0"),), (), ()),
+    "server/core/ch.py:CHClient.connect": (0, (("''", "()", "0"),), (), ()),
     "server/core/ch.py:CHClient._raw_stream_query": (0, (("''", "()", "0"),), (), ()),
     "server/core/ch.py:CHClient.raw_stream": (0, (("''", "()", "0"),), (), ()),
     "server/identity/app/namespace_catalog.py:handle_namespace_search_categories": (
@@ -740,6 +741,25 @@ def _unclassified(
             if producer_shapes.get(owner) != actual_shapes.get(owner)
         )
     return failures
+
+
+def test_connect_metadata_marker_has_a_scalar_classification() -> None:
+    path = "server/core/ch.py"
+    root = Path(__file__).resolve().parents[2]
+    tree = ast.parse((root / path).read_text())
+    client = next(
+        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "CHClient"
+    )
+    client.body = [
+        node
+        for node in client.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "connect"
+    ]
+    assert len(client.body) == 1
+    owner = path + ":CHClient.connect"
+    classified = {name: row for name, row in _CLASSIFIED.items() if name == owner}
+    failures = _unclassified({path: ast.unparse(client)}, classified, set())
+    assert not failures, "\n".join(failures)
 
 
 def test_first_party_vector_dispatches_have_a_classification() -> None:
