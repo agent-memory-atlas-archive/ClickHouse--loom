@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from server.core.errors import VectorCapacityError
+from server.core.shielded import to_its_end
 from server.core.vectors.admission import vector_work
 from server.core.vectors.search_settings import vector_search_settings
 from server.memory.app.search_llm import expand_verb_synonyms
@@ -494,8 +495,8 @@ async def fetch_temporal_diff(
     elif len(operand_vecs) != 2:
         return None
 
-    resolved = await asyncio.gather(
-        *[
+    tasks = [
+        asyncio.create_task(
             _resolve_operand_event_date(
                 ch,
                 org=org,
@@ -506,9 +507,24 @@ async def fetch_temporal_diff(
                 embedding_model=embedding_model,
                 run_id=run_id,
             )
-            for v in operand_vecs
-        ]
-    )
+        )
+        for v in operand_vecs
+    ]
+    try:
+        resolved = await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+
+        async def stopped() -> None:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        try:
+            await to_its_end(stopped(), name="temporal-operand-cleanup")
+        except asyncio.CancelledError:
+            # The first operand failure stays the answer after every sibling settles.
+            pass
+        raise
     found = [r for r in resolved if r is not None]
     if len(found) != len(resolved):
         return None
