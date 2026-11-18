@@ -5,16 +5,38 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable
 from dataclasses import replace
 from typing import Any
 
 from server.core.errors import VectorCapacityError
+from server.core.shielded import to_its_end
 from server.memory.api.models_search import _MemorySearchHit
 from server.memory.app.search.context import SearchContext
 from server.memory.app.search.vector_legs import _search_query_for, _wire_hit
 from server.memory.domain import set_expansion as _set_expansion
 
 log = logging.getLogger(__package__)
+
+
+async def _supplemental_reads[T](*reads: Awaitable[T]) -> list[T]:
+    """Join supplemental siblings on failure without changing successful scheduling."""
+    tasks = [asyncio.ensure_future(read) for read in reads]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+
+        async def stopped() -> None:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        try:
+            await to_its_end(stopped(), name="supplemental-read-cleanup")
+        except asyncio.CancelledError:
+            # The first failed read stays the answer after every sibling retires.
+            pass
+        raise
 
 
 async def _supplemental_leg(
@@ -36,7 +58,7 @@ async def _supplemental_leg(
     except Exception:  # noqa: BLE001 — a failed sub-query embed drops only that sub-query
         return []
     ctx.actual_work["vector_queries"] = int(ctx.actual_work["vector_queries"]) + len(ctx.namespaces)
-    sub_per_ns = await asyncio.gather(
+    sub_per_ns = await _supplemental_reads(
         *[
             vector_search(
                 replace(
@@ -93,7 +115,7 @@ async def _run_set_expansion(ctx: SearchContext) -> None:
         default=1.0,
     )
     try:
-        per_phrase = await asyncio.gather(
+        per_phrase = await _supplemental_reads(
             *[_supplemental_leg(ctx, ph, leg_top_k, seen_keys) for ph in phrases]
         )
     except VectorCapacityError:
@@ -152,7 +174,7 @@ async def _run_sub_queries(ctx: SearchContext) -> None:
     else:
         sub_top_k = max(5, input.top_k // max(1, len(ctx.sub_queries)))
 
-    sub_results_by_query = await asyncio.gather(
+    sub_results_by_query = await _supplemental_reads(
         *[_supplemental_leg(ctx, sq, sub_top_k, seen_keys) for sq in ctx.sub_queries]
     )
     for sub_hits in sub_results_by_query:
