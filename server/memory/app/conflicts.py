@@ -235,7 +235,8 @@ async def candidate_rows_many(
 
         async def _read(sql: str) -> list[dict[str, Any]]:
             with vector_work(org, namespace, len(idxs)):
-                return await ch.query_all(sql, params=params)
+                rows: list[dict[str, Any]] = await ch.query_all(sql, params=params)
+                return rows
 
         sql = candidate_sql_many(len(idxs), scope_and(scope, params, "m"))
         # Pinned peers retain their independent namespace-wide statement.
@@ -936,14 +937,15 @@ async def check_against_shared(
     dim = len(embedding)  # equal-length filter; see check_on_commit
 
     ch = get_client()
-    rows = await ch.query_all(
-        """
+    with vector_work(org, namespace):
+        rows = await ch.query_all(
+            """
         SELECT
             s.memory_key,
             s.value,
             """
-        + "cosineDistance(e.embedding, {emb:Array(Float32)})"
-        + """ AS dist
+            + "cosineDistance(e.embedding, {emb:Array(Float32)})"
+            + """ AS dist
         FROM loom.shared s FINAL
         JOIN loom.memory_embeddings e FINAL
           ON  e.org = s.org AND e.namespace = s.namespace
@@ -961,16 +963,16 @@ async def check_against_shared(
         ORDER BY dist ASC
         LIMIT 5
         """,
-        params={
-            "org": org,
-            "ns": namespace,
-            "mt": memory_type,
-            "self_key": target_key,
-            "dim": dim,
-            "emb": embedding,
-            "max_dist": max_distance,
-        },
-    )
+            params={
+                "org": org,
+                "ns": namespace,
+                "mt": memory_type,
+                "self_key": target_key,
+                "dim": dim,
+                "emb": embedding,
+                "max_dist": max_distance,
+            },
+        )
     return rows
 
 

@@ -631,7 +631,10 @@ async def _chunk_anchor_windows(
             fallback_anchors, chunk_agent_pred=chunk_agent_pred, base_params=chunk_params
         )
         try:
-            neighbor_rows.extend(await _chunk_query(ch, neighbor_sql, neighbor_params))
+            with vector_work(chunk_params["org"], chunk_params["ns"]):
+                neighbor_rows.extend(await _chunk_query(ch, neighbor_sql, neighbor_params))
+        except VectorCapacityError:
+            raise
         except Exception as e:  # noqa: BLE001 — neighbour chunks are optional context around the hits
             log.warning("chunk leg: neighbour window read failed (served without): %s", e)
     return neighbor_rows
@@ -787,7 +790,8 @@ async def _search_memory_chunks(
         neighbors=neighbors,
     )
     try:
-        rows = await _chunk_query(ch, sql, chunk_params)
+        with vector_work(q.org, q.namespace, int(neighbors)):
+            rows = await _chunk_query(ch, sql, chunk_params)
     except VectorCapacityError:
         raise
     except Exception:
