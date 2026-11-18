@@ -13,10 +13,14 @@ its own `get_client` name and a test replaces it there.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
 import httpx
+
+from server.clients._checked_access import CheckedAccess, Credential
+from server.settings import settings
 
 
 class VendorError(RuntimeError):
@@ -109,11 +113,30 @@ def json_object(body: bytes, what: str) -> dict[str, Any]:
 
 
 async def request_json(
-    client: httpx.AsyncClient, method: str, url: str, what: str, **kw: Any
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    what: str,
+    *,
+    checked: CheckedAccess | None = None,
+    **kw: Any,
 ) -> dict[str, Any]:
     """One request (`kw` goes to `client.request`) and its JSON object answer."""
     try:
-        resp = await client.request(method, url, **kw)
+        if checked is None:
+            resp = await client.request(method, url, **kw)
+        else:
+            async with asyncio.timeout_at(checked.deadline):
+                headers = dict(kw.pop("headers", {}) or {})
+                headers["Authorization"] = await checked.authorization(url)
+                async with client.stream(
+                    method, url, headers=headers, follow_redirects=False, **kw
+                ) as resp:
+                    body = await read_capped(resp, settings.knowledge_source_sync_max_file_bytes)
+                await checked.check()
+            if body is None:
+                raise TooLarge(f"{what}: body exceeds the source size bound")
+            resp = httpx.Response(resp.status_code, content=body)
     except httpx.RequestError as e:
         raise VendorError(f"{what}: {type(e).__name__}") from e
     raise_for_status(resp, what)
@@ -123,14 +146,17 @@ async def request_json(
 async def bearer_get(
     client: httpx.AsyncClient,
     url: str,
-    token: str,
+    token: Credential,
     what: str,
     *,
     params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """A GET with `token` as the bearer credential, and its JSON object answer."""
-    headers = {"Authorization": f"Bearer {token}"}
-    return await request_json(client, "GET", url, what, headers=headers, params=params)
+    checked = token if isinstance(token, CheckedAccess) else None
+    headers = {} if checked is not None else {"Authorization": f"Bearer {token}"}
+    return await request_json(
+        client, "GET", url, what, headers=headers, params=params, checked=checked
+    )
 
 
 async def exchange_token(
@@ -167,7 +193,7 @@ async def read_capped(resp: httpx.Response, max_bytes: int) -> bytes | None:
 async def get_capped(
     client: httpx.AsyncClient,
     url: str,
-    token: str,
+    token: Credential,
     what: str,
     *,
     max_bytes: int,
@@ -175,6 +201,21 @@ async def get_capped(
 ) -> bytes:
     """The body of a GET with `token` as the bearer credential, read up to
     `max_bytes`; TooLarge past it."""
+    if isinstance(token, CheckedAccess):
+        try:
+            async with asyncio.timeout_at(token.deadline):
+                headers = {"Authorization": await token.authorization(url)}
+                async with client.stream(
+                    "GET", url, headers=headers, params=params, follow_redirects=False
+                ) as resp:
+                    body = await read_capped(resp, max_bytes)
+                await token.check()
+            if body is None:
+                raise TooLarge(f"{what}: over {max_bytes} bytes")
+            raise_for_status(httpx.Response(resp.status_code, content=body), what)
+            return body
+        except httpx.RequestError as e:
+            raise VendorError(f"{what}: {type(e).__name__}") from e
     headers = {"Authorization": f"Bearer {token}"}
     try:
         async with client.stream("GET", url, headers=headers, params=params) as resp:

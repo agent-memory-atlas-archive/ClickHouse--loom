@@ -968,13 +968,29 @@ Knowledge documents and conversations: chunking, search floor, thread titles.
 
 | Variable | Type | Default | Live | Meaning |
 | --- | --- | --- | --- | --- |
+| `LOOM_CONNECT_GDRIVE_CLIENT_ID` | `str` | `''` |  | OAuth client id for personal Drive connections; empty disables the provider. |
+| `LOOM_CONNECT_GDRIVE_CLIENT_SECRET` | `str` | *(unset)* |  | Secret of that Drive OAuth registration; kept outside source rows. |
+| `LOOM_CONNECT_NOTION_CLIENT_ID` | `str` | `''` |  | Public-integration client id for personal page-store connections; empty disables it. |
+| `LOOM_CONNECT_NOTION_CLIENT_SECRET` | `str` | *(unset)* |  | Secret of that page-store registration; kept outside source rows. |
+| `LOOM_CONNECT_LINEAR_CLIENT_ID` | `str` | `''` |  | OAuth client id for personal project-tracker connections; empty disables it. |
+| `LOOM_CONNECT_LINEAR_CLIENT_SECRET` | `str` | *(unset)* |  | Secret of that project-tracker registration; kept outside source rows. |
+| `LOOM_CONNECT_NOTION_READ_CONTENT_ONLY` | `bool` | `False` |  | The operator has restricted the public integration to read-content capability. Its token response cannot prove this registration setting; false disables it. |
+| `LOOM_KNOWLEDGE_CONNECTED_STOP_TIMEOUT_S` | `float` | `20.0` |  | Seconds for local connection stops, including their source retirement writes. |
+| `LOOM_KNOWLEDGE_CONNECTED_REVOKE_TIMEOUT_S` | `float` | `5.0` |  | Seconds for best-effort provider revocation after every local stop has committed. |
+| `LOOM_KNOWLEDGE_CONNECTED_LEASE_TTL_S` | `float` | `60.0` |  | Seconds the renewed account-generation lease lives. Source leases follow it; provider requests hold neither. |
+| `LOOM_KNOWLEDGE_CONNECTED_LEASE_WAIT_S` | `float` | `5.0` |  | Seconds a connection change waits for another holder's account-generation lease. |
+| `LOOM_KNOWLEDGE_CONNECTED_REGISTRY_SCAN_LIMIT` | `int` | `4096` |  | Maximum complete owner scan; exceeding it refuses instead of stopping a subset. |
+| `LOOM_KNOWLEDGE_CONNECTED_REGISTRY_PAGE_SIZE` | `int` | `256` |  | Registrations per page during root-secret resealing. |
 | `LOOM_KNOWLEDGE_CONNECTED_OAUTH_TIMEOUT_S` | `float` | `30.0` |  | Seconds one connected-account OAuth request may take, including its response. The caller's remaining deadline can shorten this bound. |
 | `LOOM_KNOWLEDGE_CONNECTED_OAUTH_RESPONSE_MAX_BYTES` | `int` | `65536` |  | Bytes read from a connected-account token or identity response; larger metadata replies are refused before parsing. |
 | `LOOM_KNOWLEDGE_SOURCES_MAX_PER_NAMESPACE` | `int` | `8` | live | Active document sources (knowledge.source.add) one namespace may register; an add past it is refused with SOURCE_QUOTA. |
+| `LOOM_KNOWLEDGE_CONNECTED_SOURCES_MAX_PER_NAMESPACE` | `int` | `64` | live | Active connected sources per namespace, separate from the shared/crawl quota. |
+| `LOOM_KNOWLEDGE_CONNECTED_SOURCES_MAX_PER_PERSON` | `int` | `8` | live | Active connected sources one canonical person may register in one namespace. |
 | `LOOM_KNOWLEDGE_SOURCE_PROBE_TIMEOUT_S` | `float` | `20.0` | live | Seconds a document source's probe (add, update, check, rotate) or tracker short-id lookup may take in all; past it add, update and rotate answer SOURCE_UNREACHABLE and check answers reachable: false. |
 | `LOOM_KNOWLEDGE_SOURCE_SYNC_ENABLED` | `bool` | `False` |  | The knowledge_source_sync worker: pulls each registered document source's changed files into its namespace's documents. Off by default: it needs each source's credential, spends embedding calls on every changed document and model calls mining it for decisions. |
 | `LOOM_KNOWLEDGE_MIRRORED_SOURCES_ENABLED` | `bool` | `False` |  | Require protected automatic session capture and persist deployment privacy state. Off does not lift protection while the deployment latch remains set. |
 | `LOOM_KNOWLEDGE_SOURCE_ACL_STALE_SECONDS` | `int` | `3600` |  | Mirrored reads require a complete listing and group observation within this many seconds; missing or older evidence admits nobody. |
+| `LOOM_KNOWLEDGE_SOURCE_ACL_MAX_ENTRIES` | `int` | `10000` |  | Maximum team and member rows read for one project's complete permission list. A larger list refuses publication rather than granting from a partial page. |
 | `LOOM_KNOWLEDGE_SOURCE_PUSH_ENABLED` | `bool` | `False` |  | Enable optional source push setup, callbacks and Drive renewal; false keeps polling only. |
 | `LOOM_KNOWLEDGE_SOURCE_PUSH_INTERVAL_SECONDS` | `int` | `300` |  | Seconds between bounded channel-renewal pages; channels renew a day before expiry. |
 | `LOOM_KNOWLEDGE_SOURCE_PUSH_PROVIDER_TIMEOUT_S` | `float` | `40.0` |  | Seconds one push setup or Drive renewal may spend on provider work, before cleanup. |
@@ -1644,7 +1660,7 @@ Telemetry, audit, tracing and the ops surface.
 | `LOOM_OTEL_EXPORTER_OTLP_HEADERS` | `str` | *(unset)* |  | Comma-separated K=V headers sent to `otel_exporter_otlp_endpoint`, e.g. `Authorization=Bearer <token>`. |
 | `LOOM_OTEL_SERVICE_NAME` | `str` | `'loom'` |  | The OTel resource `service.name` stamped on every span, log and metric. |
 | `LOOM_OTEL_ENVIRONMENT` | `str` | `'dev'` |  | The OTel resource `deployment.environment.name` stamped on every span, log and metric. |
-| `LOOM_OTEL_EXCLUDED_URLS` | `str` | `'/v1/health'` |  | Comma-separated path regexes the FastAPI instrumentation opens no span for (health polls). "" = instrument every path but the sign-in routes (/oauth/), which are always left out: their URLs carry codes. |
+| `LOOM_OTEL_EXCLUDED_URLS` | `str` | `'/v1/health'` |  | Comma-separated path regexes the FastAPI instrumentation opens no span for (health polls). "" = instrument every path but the sign-in routes (/oauth/ and /v1/connect/), which are always left out: their URLs carry codes. |
 | `LOOM_LATENCY_BUDGET_MULTIPLIER` | `float` | `1.0` |  | Scales every op's p99 budget (OP_BUDGETS_P99_MS in server/settings/catalog.py, tuned for local CH) at the comparison site; set e.g. 20.0 on Cloud so SLO alerts don't fire on baseline RTT. |
 | `LOOM_LATENCY_BUDGET_OVERRIDES` | `str` | `''` |  | JSON map {op: ms \| "<n>x"} over the op budgets table (OP_BUDGETS_P99_MS in server/settings/catalog.py): an integer replaces that op's budget, "3x" multiplies it. Checked after the per-consumer overrides and `admin/budget.set`; a value that is neither ms nor "<n>x" stops startup, an op this build lacks is logged and ignored. '' = the table as declared. |
 | `LOOM_LATENCY_BUDGET_OVERRIDES_BY_CONSUMER` | `str` | `''` |  | JSON map {consumer: {op \| "*": ms \| "<n>x"}}: an integer is a budget in ms, "3x" multiplies the op's declared budget. Checked after runtime `admin/budget.set` overrides, before per-op ones; malformed = logged once and ignored. '' = none. |

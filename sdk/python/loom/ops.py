@@ -109,6 +109,8 @@ OpName = Literal[
     "conflicts.list",
     "conflicts.propose_revision",
     "conflicts.resolve",
+    "connection.disconnect",
+    "connection.list",
     "consolidations.list",
     "context.fetch",
     "context.offload",
@@ -485,6 +487,8 @@ OP_NAMES: tuple[str, ...] = (
     "conflicts.list",
     "conflicts.propose_revision",
     "conflicts.resolve",
+    "connection.disconnect",
+    "connection.list",
     "consolidations.list",
     "context.fetch",
     "context.offload",
@@ -1631,6 +1635,30 @@ OPS: dict[str, OpSpec] = {
         True,
         False,
     ),
+    "connection.disconnect": OpSpec(
+        "connection.disconnect",
+        "ConnectionDisconnectInput",
+        "ConnectionDisconnectBody",
+        "ConnectionDisconnectOutput",
+        True,
+        "viewer",
+        "experimental",
+        30000,
+        False,
+        False,
+    ),
+    "connection.list": OpSpec(
+        "connection.list",
+        "ConnectionListInput",
+        "ConnectionListBody",
+        "ConnectionListOutput",
+        True,
+        "viewer",
+        "experimental",
+        1000,
+        False,
+        True,
+    ),
     "consolidations.list": OpSpec(
         "consolidations.list",
         "ConsolidationsListInput",
@@ -2609,7 +2637,7 @@ OPS: dict[str, OpSpec] = {
         "KnowledgeSourceAddBody",
         "KnowledgeSourceAddOutput",
         False,
-        "admin",
+        "writer",
         "experimental",
         60000,
         True,
@@ -2621,7 +2649,7 @@ OPS: dict[str, OpSpec] = {
         "KnowledgeSourceCheckBody",
         "KnowledgeSourceCheckOutput",
         True,
-        "admin",
+        "writer",
         "experimental",
         30000,
         False,
@@ -2705,7 +2733,7 @@ OPS: dict[str, OpSpec] = {
         "KnowledgeSourceRemoveBody",
         "KnowledgeSourceRemoveOutput",
         False,
-        "admin",
+        "writer",
         "experimental",
         400,
         True,
@@ -2729,7 +2757,7 @@ OPS: dict[str, OpSpec] = {
         "KnowledgeSourceSyncNowBody",
         "KnowledgeSourceSyncNowOutput",
         True,
-        "admin",
+        "writer",
         "experimental",
         300,
         True,
@@ -2741,7 +2769,7 @@ OPS: dict[str, OpSpec] = {
         "KnowledgeSourceUpdateBody",
         "KnowledgeSourceUpdateOutput",
         False,
-        "admin",
+        "writer",
         "experimental",
         60000,
         True,
@@ -8350,6 +8378,40 @@ class ConflictsResolveOutput(TypedDict, total=False):
     total: NotRequired[Optional[int]]
 
 
+class ConnectionDisconnectInput(TypedDict, total=False):
+    org: Required[str]
+    kind: Required[Literal["gdrive", "notion", "linear"]]
+
+
+class ConnectionDisconnectBody(TypedDict, total=False):
+    org: NotRequired[str]
+    kind: Required[Literal["gdrive", "notion", "linear"]]
+
+
+class ConnectionDisconnectOutput(TypedDict, total=False):
+    disconnected: Required[bool]
+
+
+class ConnectionListInput(TypedDict, total=False):
+    org: Required[str]
+
+
+class ConnectionListBody(TypedDict, total=False):
+    org: NotRequired[str]
+
+
+class ConnectionListOutput(TypedDict, total=False):
+    connections: Required[list["ConnectionEntry"]]
+
+
+class ConnectionEntry(TypedDict, total=False):
+    kind: Required[Literal["gdrive", "notion", "linear"]]
+    connected: Required[bool]
+    account_email: NotRequired[Optional[str]]
+    scopes: NotRequired[list[str]]
+    connect_url: Required[str]
+
+
 class ConsolidationsListInput(TypedDict, total=False):
     "Namespace-scoped consolidation-run history. agent + user_id are"
 
@@ -11638,7 +11700,8 @@ class KnowledgeSourceAddInput(TypedDict, total=False):
     links: NotRequired[Optional[list[str]]]
     config: NotRequired[Optional[dict[str, Any]]]
     include: NotRequired[Optional[list[str]]]
-    credential: Required[str]
+    credential_mode: NotRequired[Literal["shared", "connected"]]
+    credential: NotRequired[str]
     dry_run: NotRequired[bool]
 
 
@@ -11653,7 +11716,8 @@ class KnowledgeSourceAddBody(TypedDict, total=False):
     links: NotRequired[Optional[list[str]]]
     config: NotRequired[Optional[dict[str, Any]]]
     include: NotRequired[Optional[list[str]]]
-    credential: Required[str]
+    credential_mode: NotRequired[Literal["shared", "connected"]]
+    credential: NotRequired[str]
     dry_run: NotRequired[bool]
 
 
@@ -11725,6 +11789,9 @@ class KnowledgeSourceInspectBody(TypedDict, total=False):
 class KnowledgeSourceInspectOutput(TypedDict, total=False):
     name: Required[str]
     kind: Required[str]
+    credential_mode: NotRequired[str]
+    access: NotRequired[str]
+    owner_subject: NotRequired[str]
     items: NotRequired[list[dict[str, Any]]]
     include: NotRequired[list[str]]
     config: NotRequired[dict[str, Any]]
@@ -11785,6 +11852,9 @@ class KnowledgeSourceListOutput(TypedDict, total=False):
 class KnowledgeSourceEntry(TypedDict, total=False):
     name: Required[str]
     kind: Required[str]
+    credential_mode: NotRequired[str]
+    access: NotRequired[str]
+    owner_subject: NotRequired[str]
     items: NotRequired[list[dict[str, Any]]]
     include: NotRequired[list[str]]
     config: NotRequired[dict[str, Any]]

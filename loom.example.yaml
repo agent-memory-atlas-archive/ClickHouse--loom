@@ -2833,6 +2833,45 @@ settings:
 
   # --- document sources ---
 
+  # OAuth client id for personal Drive connections; empty disables the provider.
+  # [restart]
+  # connect_gdrive_client_id: ""
+
+  # Public-integration client id for personal page-store connections; empty disables it.
+  # [restart]
+  # connect_notion_client_id: ""
+
+  # OAuth client id for personal project-tracker connections; empty disables it.
+  # [restart]
+  # connect_linear_client_id: ""
+
+  # The operator has restricted the public integration to read-content capability. Its
+  # token response cannot prove this registration setting; false disables it. [restart]
+  # connect_notion_read_content_only: false
+
+  # Seconds for local connection stops, including their source retirement writes.
+  # [restart]
+  # knowledge_connected_stop_timeout_s: 20.0
+
+  # Seconds for best-effort provider revocation after every local stop has committed.
+  # [restart]
+  # knowledge_connected_revoke_timeout_s: 5.0
+
+  # Seconds the renewed account-generation lease lives. Source leases follow it;
+  # provider requests hold neither. [restart]
+  # knowledge_connected_lease_ttl_s: 60.0
+
+  # Seconds a connection change waits for another holder's account-generation lease.
+  # [restart]
+  # knowledge_connected_lease_wait_s: 5.0
+
+  # Maximum complete owner scan; exceeding it refuses instead of stopping a subset.
+  # [restart]
+  # knowledge_connected_registry_scan_limit: 4096
+
+  # Registrations per page during root-secret resealing. [restart]
+  # knowledge_connected_registry_page_size: 256
+
   # Seconds one connected-account OAuth request may take, including its response. The
   # caller's remaining deadline can shorten this bound. [restart]
   # knowledge_connected_oauth_timeout_s: 30.0
@@ -2844,6 +2883,12 @@ settings:
   # Active document sources (knowledge.source.add) one namespace may register; an add
   # past it is refused with SOURCE_QUOTA. [live]
   # knowledge_sources_max_per_namespace: 8
+
+  # Active connected sources per namespace, separate from the shared/crawl quota. [live]
+  # knowledge_connected_sources_max_per_namespace: 64
+
+  # Active connected sources one canonical person may register in one namespace. [live]
+  # knowledge_connected_sources_max_per_person: 8
 
   # Seconds a document source's probe (add, update, check, rotate) or tracker short-id
   # lookup may take in all; past it add, update and rotate answer SOURCE_UNREACHABLE and
@@ -2863,6 +2908,10 @@ settings:
   # Mirrored reads require a complete listing and group observation within this many
   # seconds; missing or older evidence admits nobody. [restart]
   # knowledge_source_acl_stale_seconds: 3600
+
+  # Maximum team and member rows read for one project's complete permission list. A
+  # larger list refuses publication rather than granting from a partial page. [restart]
+  # knowledge_source_acl_max_entries: 10000
 
   # Enable optional source push setup, callbacks and Drive renewal; false keeps polling
   # only. [restart]
@@ -4787,8 +4836,8 @@ settings:
   # otel_environment: "dev"
 
   # Comma-separated path regexes the FastAPI instrumentation opens no span for (health
-  # polls). "" = instrument every path but the sign-in routes (/oauth/), which are
-  # always left out: their URLs carry codes. [restart]
+  # polls). "" = instrument every path but the sign-in routes (/oauth/ and
+  # /v1/connect/), which are always left out: their URLs carry codes. [restart]
   # otel_excluded_urls: "/v1/health"
 
   # Scales every op's p99 budget (OP_BUDGETS_P99_MS in server/settings/catalog.py, tuned

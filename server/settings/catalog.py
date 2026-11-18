@@ -2330,6 +2330,34 @@ class KnowledgeSettings(BaseModel):
     document_extractor_max_artifact_bytes: int = Field(default=64 * 1024 * 1024, ge=1024)
 
     # ---- document sources ----
+    # OAuth client id for personal Drive connections; empty disables the provider.
+    connect_gdrive_client_id: str = ""
+    # Secret of that Drive OAuth registration; kept outside source rows.
+    connect_gdrive_client_secret: str = ""
+    # Public-integration client id for personal page-store connections; empty disables it.
+    connect_notion_client_id: str = ""
+    # Secret of that page-store registration; kept outside source rows.
+    connect_notion_client_secret: str = ""
+    # OAuth client id for personal project-tracker connections; empty disables it.
+    connect_linear_client_id: str = ""
+    # Secret of that project-tracker registration; kept outside source rows.
+    connect_linear_client_secret: str = ""
+    # The operator has restricted the public integration to read-content capability.
+    # Its token response cannot prove this registration setting; false disables it.
+    connect_notion_read_content_only: bool = False
+    # Seconds for local connection stops, including their source retirement writes.
+    knowledge_connected_stop_timeout_s: float = Field(default=20.0, gt=0)
+    # Seconds for best-effort provider revocation after every local stop has committed.
+    knowledge_connected_revoke_timeout_s: float = Field(default=5.0, gt=0)
+    # Seconds the renewed account-generation lease lives. Source leases follow it;
+    # provider requests hold neither.
+    knowledge_connected_lease_ttl_s: float = Field(default=60.0, gt=0)
+    # Seconds a connection change waits for another holder's account-generation lease.
+    knowledge_connected_lease_wait_s: float = Field(default=5.0, ge=0)
+    # Maximum complete owner scan; exceeding it refuses instead of stopping a subset.
+    knowledge_connected_registry_scan_limit: int = Field(default=4096, ge=1)
+    # Registrations per page during root-secret resealing.
+    knowledge_connected_registry_page_size: int = Field(default=256, ge=1, le=4096)
     # Seconds one connected-account OAuth request may take, including its response.
     # The caller's remaining deadline can shorten this bound.
     knowledge_connected_oauth_timeout_s: float = Field(default=30.0, gt=0)
@@ -2339,6 +2367,10 @@ class KnowledgeSettings(BaseModel):
     # Active document sources (knowledge.source.add) one namespace may register; an
     # add past it is refused with SOURCE_QUOTA.
     knowledge_sources_max_per_namespace: Annotated[int, LIVE] = Field(default=8, ge=1)
+    # Active connected sources per namespace, separate from the shared/crawl quota.
+    knowledge_connected_sources_max_per_namespace: Annotated[int, LIVE] = Field(default=64, ge=1)
+    # Active connected sources one canonical person may register in one namespace.
+    knowledge_connected_sources_max_per_person: Annotated[int, LIVE] = Field(default=8, ge=1)
     # Seconds a document source's probe (add, update, check, rotate) or tracker short-id
     # lookup may take in all; past it add, update and rotate answer SOURCE_UNREACHABLE
     # and check answers reachable: false.
@@ -2354,6 +2386,9 @@ class KnowledgeSettings(BaseModel):
     # Mirrored reads require a complete listing and group observation within this
     # many seconds; missing or older evidence admits nobody.
     knowledge_source_acl_stale_seconds: int = Field(default=3600, ge=1)
+    # Maximum team and member rows read for one project's complete permission list.
+    # A larger list refuses publication rather than granting from a partial page.
+    knowledge_source_acl_max_entries: int = Field(default=10000, ge=1)
     # Enable optional source push setup, callbacks and Drive renewal; false keeps polling only.
     knowledge_source_push_enabled: bool = False
     # Seconds between bounded channel-renewal pages; channels renew a day before expiry.
@@ -4258,7 +4293,7 @@ class ObservabilitySettings(BaseModel):
     otel_environment: str = "dev"
     # Comma-separated path regexes the FastAPI instrumentation opens no span
     # for (health polls). "" = instrument every path but the sign-in routes
-    # (/oauth/), which are always left out: their URLs carry codes.
+    # (/oauth/ and /v1/connect/), which are always left out: their URLs carry codes.
     otel_excluded_urls: str = "/v1/health"
 
     # Scales every op's p99 budget (OP_BUDGETS_P99_MS in server/settings/catalog.py,
@@ -5976,6 +6011,10 @@ class TrackerSettings(BaseModel):
 # the handler time a budget measures.
 
 OP_BUDGETS_P99_MS: dict[str, int] = {
+    # Own connection listing rechecks current identity and provider registration;
+    # disconnect includes bounded local retirement followed by best-effort revocation.
+    "connection.list": 1000,
+    "connection.disconnect": 30000,
     "admin.users": 300,
     "agents.connected": 120,
     # One agent answer: a model turn per tool call (measured p95 10.7 s, at most 15 s

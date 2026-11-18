@@ -2305,6 +2305,26 @@
           "type": "number",
           "description": "memory.set flags a write `conflicted` when an active peer in the same (org, namespace, memory_type) sits at cosine ≥ this. Tuned for text-embedding-3-*; 1.0 disables. Per-namespace override: loom.namespaces.conflict_threshold."
         },
+        "connect_gdrive_client_id": {
+          "default": "",
+          "type": "string",
+          "description": "OAuth client id for personal Drive connections; empty disables the provider."
+        },
+        "connect_linear_client_id": {
+          "default": "",
+          "type": "string",
+          "description": "OAuth client id for personal project-tracker connections; empty disables it."
+        },
+        "connect_notion_client_id": {
+          "default": "",
+          "type": "string",
+          "description": "Public-integration client id for personal page-store connections; empty disables it."
+        },
+        "connect_notion_read_content_only": {
+          "default": false,
+          "type": "boolean",
+          "description": "The operator has restricted the public integration to read-content capability. Its token response cannot prove this registration setting; false disables it."
+        },
         "consolidation_merge_concurrency": {
           "default": 4,
           "type": "integer",
@@ -3050,6 +3070,18 @@
           "type": "integer",
           "description": "Characters between chunk starts: below chunk_size the chunks overlap; above it the step is chunk_size, so no text falls between chunks."
         },
+        "knowledge_connected_lease_ttl_s": {
+          "default": 60.0,
+          "exclusiveMinimum": 0,
+          "type": "number",
+          "description": "Seconds the renewed account-generation lease lives. Source leases follow it; provider requests hold neither."
+        },
+        "knowledge_connected_lease_wait_s": {
+          "default": 5.0,
+          "minimum": 0,
+          "type": "number",
+          "description": "Seconds a connection change waits for another holder's account-generation lease."
+        },
         "knowledge_connected_oauth_response_max_bytes": {
           "default": 65536,
           "minimum": 1024,
@@ -3061,6 +3093,43 @@
           "exclusiveMinimum": 0,
           "type": "number",
           "description": "Seconds one connected-account OAuth request may take, including its response. The caller's remaining deadline can shorten this bound."
+        },
+        "knowledge_connected_registry_page_size": {
+          "default": 256,
+          "maximum": 4096,
+          "minimum": 1,
+          "type": "integer",
+          "description": "Registrations per page during root-secret resealing."
+        },
+        "knowledge_connected_registry_scan_limit": {
+          "default": 4096,
+          "minimum": 1,
+          "type": "integer",
+          "description": "Maximum complete owner scan; exceeding it refuses instead of stopping a subset."
+        },
+        "knowledge_connected_revoke_timeout_s": {
+          "default": 5.0,
+          "exclusiveMinimum": 0,
+          "type": "number",
+          "description": "Seconds for best-effort provider revocation after every local stop has committed."
+        },
+        "knowledge_connected_sources_max_per_namespace": {
+          "default": 64,
+          "minimum": 1,
+          "type": "integer",
+          "description": "Active connected sources per namespace, separate from the shared/crawl quota."
+        },
+        "knowledge_connected_sources_max_per_person": {
+          "default": 8,
+          "minimum": 1,
+          "type": "integer",
+          "description": "Active connected sources one canonical person may register in one namespace."
+        },
+        "knowledge_connected_stop_timeout_s": {
+          "default": 20.0,
+          "exclusiveMinimum": 0,
+          "type": "number",
+          "description": "Seconds for local connection stops, including their source retirement writes."
         },
         "knowledge_gaps_enabled": {
           "default": false,
@@ -3281,6 +3350,12 @@
           "minimum": 2,
           "type": "integer",
           "description": "How many fused hits a rerank reads (the legs fetch at least this many)."
+        },
+        "knowledge_source_acl_max_entries": {
+          "default": 10000,
+          "minimum": 1,
+          "type": "integer",
+          "description": "Maximum team and member rows read for one project's complete permission list. A larger list refuses publication rather than granting from a partial page."
         },
         "knowledge_source_acl_stale_seconds": {
           "default": 3600,
@@ -5694,7 +5769,7 @@
         "otel_excluded_urls": {
           "default": "/v1/health",
           "type": "string",
-          "description": "Comma-separated path regexes the FastAPI instrumentation opens no span for (health polls). \"\" = instrument every path but the sign-in routes (/oauth/), which are always left out: their URLs carry codes."
+          "description": "Comma-separated path regexes the FastAPI instrumentation opens no span for (health polls). \"\" = instrument every path but the sign-in routes (/oauth/ and /v1/connect/), which are always left out: their URLs carry codes."
         },
         "otel_exporter": {
           "default": "",
