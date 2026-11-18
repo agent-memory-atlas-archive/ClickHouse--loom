@@ -304,3 +304,143 @@ async def test_postcommit_refusal_preserves_versions_and_reports_optional_work(
     assert result.next.startswith("Existing next.")
     assert "vector capacity" in result.next
     assert "committed" in result.next
+
+
+def test_vector_scan_waiter_setting_accepts_one_and_refuses_invalid_values() -> None:
+    from pydantic import ValidationError
+
+    from server.settings import Settings
+
+    assert Settings(vector_scan_max_waiters_per_org=1).vector_scan_max_waiters_per_org == 1
+    for invalid in (0, -1, float("inf"), float("-inf"), float("nan")):
+        with pytest.raises(ValidationError, match="vector_scan_max_waiters_per_org"):
+            Settings.model_validate({"vector_scan_max_waiters_per_org": invalid})
+
+
+def test_vector_scan_row_setting_accepts_one_and_refuses_invalid_values() -> None:
+    from pydantic import ValidationError
+
+    from server.settings import Settings
+
+    assert Settings(vector_scan_max_rows_to_read=1).vector_scan_max_rows_to_read == 1
+    for invalid in (0, -1, float("inf"), float("-inf"), float("nan")):
+        with pytest.raises(ValidationError, match="vector_scan_max_rows_to_read"):
+            Settings.model_validate({"vector_scan_max_rows_to_read": invalid})
+
+
+@pytest.mark.asyncio
+async def test_vector_waiter_setting_bounds_queued_reads_and_reclaims_cancelled_capacity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from server.core.errors import VectorCapacityError
+
+    monkeypatch.setattr(settings, "vector_scan_max_concurrent_per_org", 2)
+    monkeypatch.setattr(settings, "vector_scan_max_waiters_per_org", 4)
+    ch, driver = client(monkeypatch)
+    tasks = [asyncio.create_task(hybrid_search(query("one-org"), ch=ch)) for _ in range(6)]
+    try:
+        await settled()
+        assert driver.active == 2
+        assert sum(not task.done() for task in tasks) == 6
+        with pytest.raises(VectorCapacityError) as raised:
+            await hybrid_search(query("one-org"), ch=ch)
+        assert raised.value.extra["reason"] == "org_queue"
+        assert driver.started == 2
+
+        tasks[-1].cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await tasks[-1]
+        replacement = asyncio.create_task(hybrid_search(query("one-org"), ch=ch))
+        tasks.append(replacement)
+        await settled()
+        assert not replacement.done()
+        assert driver.started == 2
+    finally:
+        results = await join(tasks, driver)
+    assert results.count([]) == 6
+    assert sum(isinstance(result, asyncio.CancelledError) for result in results) == 1
+    assert driver.started == 6
+    assert driver.active == 0
+
+    # Both org credits are usable after refusal, queued cancellation and drain.
+    driver.release.clear()
+    probes = [asyncio.create_task(hybrid_search(query("one-org"), ch=ch)) for _ in range(2)]
+    try:
+        await settled()
+        assert driver.active == 2
+    finally:
+        probe_results = await join(probes, driver)
+    assert probe_results == [[], []]
+    assert driver.started == 8
+    assert driver.active == 0
+
+
+@pytest.mark.asyncio
+async def test_vector_row_setting_reaches_the_actual_native_read_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "vector_scan_max_rows_to_read", 1234)
+    ch, driver = client(monkeypatch)
+    driver.release.set()
+
+    assert await hybrid_search(query("one-org"), ch=ch) == []
+    assert driver.started == 1
+    assert driver.settings[0]["max_rows_to_read"] == 1234
+    assert driver.settings[0]["read_overflow_mode"] == "throw"
+    assert driver.active == 0
+
+
+@pytest.mark.parametrize("kind", ["admission", "input", "overload"])
+def test_vector_concrete_error_hierarchy_preserves_wire_contracts(kind: str) -> None:
+    from server.core.errors import (
+        LoomServerError,
+        OverloadedError,
+        ValidationError,
+        VectorAdmissionError,
+        VectorCapacityError,
+        VectorOverloadedError,
+        classified,
+    )
+
+    if kind == "admission":
+        error = VectorAdmissionError("refused", reason="org_queue", retry_after_s=3)
+        public_family = LoomServerError
+        expected = (
+            429,
+            {
+                "code": "VECTOR_CAPACITY_REFUSED",
+                "message": "refused",
+                "reason": "org_queue",
+                "retry_after_s": 3,
+            },
+            {"Retry-After": "3"},
+        )
+        category, retryable = "capacity", True
+    elif kind == "input":
+        error = VectorInputTooLargeError("too many seeds")
+        public_family = ValidationError
+        expected = (422, {"code": "VECTOR_INPUT_TOO_LARGE", "message": "too many seeds"}, None)
+        category, retryable = "input", False
+    else:
+        error = VectorOverloadedError("busy", reason="population", retry_after_s=2)
+        public_family = OverloadedError
+        expected = (
+            503,
+            {"code": "OVERLOADED", "message": "busy", "reason": "population", "retry_after_s": 2},
+            {"Retry-After": "2"},
+        )
+        category, retryable = "capacity", True
+
+    assert isinstance(error, public_family)
+    with pytest.raises(VectorCapacityError) as caught_capacity:
+        raise error
+    assert caught_capacity.value is error
+    with pytest.raises(LoomServerError) as caught_wire:
+        raise error
+    assert caught_wire.value is error
+    assert (error.status_code, error.to_detail(), error.headers()) == expected
+    assert classified(error.to_detail(), error.status_code) == {
+        **expected[1],
+        "category": category,
+        "retryable": retryable,
+    }

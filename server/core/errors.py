@@ -57,11 +57,13 @@ VectorCapacityReason = Literal[
 ]
 
 
-class VectorCapacityError(LoomServerError):
+class VectorCapacityError(Exception):
     """Common refusal family: a read must not return a ranking subset."""
 
+    extra: dict[str, Any]
 
-class VectorAdmissionError(VectorCapacityError):
+
+class VectorAdmissionError(LoomServerError, VectorCapacityError):
     """429 — complete vector work exceeds a weighted queue or native budget.
     `reason` names the bounded refusal; retry after `retry_after_s`, or narrow the read."""
 
