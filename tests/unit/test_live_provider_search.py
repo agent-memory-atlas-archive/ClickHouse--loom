@@ -192,7 +192,20 @@ async def test_live_response_cap_is_clamped_and_redirects_do_not_forward_credent
         if len(calls) == 1:
             return httpx.Response(200, stream=stream)
         return httpx.Response(
-            302, headers={"Location": "https://untrusted.example/collect"}, json={}
+            302,
+            headers={"Location": "https://untrusted.example/collect"},
+            json={
+                "files": [
+                    {
+                        "id": "file12345678",
+                        "name": "Redirect body must not answer",
+                        "trashed": False,
+                        "mimeType": "application/vnd.google-apps.document",
+                        "parents": ["folder123456"],
+                        "webViewLink": "https://docs.google.com/document/d/file12345678/edit",
+                    }
+                ]
+            },
         )
 
     async with httpx.AsyncClient(
@@ -202,7 +215,9 @@ async def test_live_response_cap_is_clamped_and_redirects_do_not_forward_credent
         with pytest.raises(_vendor.TooLarge):
             await live.search(source, access, "query", top_k=1, deadline=access.deadline)
         assert stream.closed and stream.reads == 1
-        with pytest.raises(live.SearchUnavailable):
+        monkeypatch.setattr(_vendor.settings, "knowledge_source_sync_max_file_bytes", 1024)
+        with pytest.raises(_vendor.VendorError) as refused:
             await live.search(source, access, "query", top_k=1, deadline=access.deadline)
+        assert refused.value.status == 302
     assert len(calls) == 2
     assert all(request.url.host == "www.googleapis.com" for request in calls)
