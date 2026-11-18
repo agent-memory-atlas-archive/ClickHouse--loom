@@ -119,6 +119,7 @@ async def execute_duplicate_check(plan: DuplicateCheckPlan) -> TrackerDuplicateC
     wants_prs = bool(input.related_prs) and not plan.explicit
     pr_task = _start_pr_check(input.org, plan.code_namespace, title, body) if wants_prs else None
     deadline = dl.start_deadline()
+    failed = False
     try:
         inputs = [input.model_copy(update={"namespace": ns}) for ns in plan.targets] or [input]
         out = await _checked(inputs, wall, int(input.top_k))
@@ -132,10 +133,23 @@ async def execute_duplicate_check(plan: DuplicateCheckPlan) -> TrackerDuplicateC
             title,
             cache=plan.cache,
         )
+    except BaseException:
+        failed = True
+        raise
     finally:
         dl.end_deadline(deadline)
-        if pr_task is not None and not pr_task.done():
-            pr_task.cancel()
+        if pr_task is not None and (failed or not pr_task.done()):
+            if not pr_task.done():
+                pr_task.cancel()
+
+            async def stopped() -> None:
+                await asyncio.gather(pr_task, return_exceptions=True)
+
+            try:
+                await to_its_end(stopped(), name="tracker.related-pr-cleanup")
+            except asyncio.CancelledError:
+                if not failed:
+                    raise
 
 
 def _start_pr_check(org: str, code_ns: str, title: str, body: str) -> Any:
