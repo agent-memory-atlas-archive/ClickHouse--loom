@@ -102,8 +102,14 @@ class _Store:
     async def latest_source(self, org: str, ns: str, name: str) -> KnowledgeSource | None:
         return self.rows.get((org, ns, name))
 
-    async def active_count(self, org: str, ns: str) -> int:
-        return len(await self.list_sources(org, ns))
+    async def active_count(
+        self, org: str, ns: str, *, connected: bool = False, owner_subject: str | None = None
+    ) -> int:
+        return sum(
+            (source.credential_mode == "connected") == connected
+            and (owner_subject is None or source.owner_subject == owner_subject)
+            for source in await self.list_sources(org, ns)
+        )
 
     async def insert_source(self, src: KnowledgeSource) -> None:
         self.rows[(src.org, src.namespace, src.name)] = src
@@ -670,12 +676,20 @@ def _auth(role: Role, org: str = ORG) -> AuthInfo:
 
 
 @pytest.mark.parametrize("name", ADMIN_OPS)
-def test_writes_and_check_need_the_namespace_admin(no_grant_reads: None, name: str) -> None:
+def test_source_entry_role_keeps_connected_writers_and_shared_admins(
+    no_grant_reads: None, name: str
+) -> None:
     op = OPERATIONS_BY_NAME[name]
-    assert op.required_role == Role.ADMIN and not op.skip_namespace_authz
+    expected = Role.ADMIN if name == "knowledge.source.rotate" else Role.WRITER
+    assert op.required_role == expected and not op.skip_namespace_authz
     assert op.audit == (name != "knowledge.source.check")
     asyncio.run(check_authorized(_auth(Role.ADMIN), op.required_role, ORG, NS))
-    for refused in (_auth(Role.VIEWER), _auth(Role.WRITER), _auth(Role.ADMIN, org="other")):
+    if expected == Role.WRITER:
+        asyncio.run(check_authorized(_auth(Role.WRITER), op.required_role, ORG, NS))
+    refused_callers = [_auth(Role.VIEWER), _auth(Role.ADMIN, org="other")]
+    if expected == Role.ADMIN:
+        refused_callers.append(_auth(Role.WRITER))
+    for refused in refused_callers:
         with pytest.raises(PermissionError):
             asyncio.run(check_authorized(refused, op.required_role, ORG, NS))
 
@@ -2603,3 +2617,41 @@ def test_redundant_folder_and_drive_entries_count_as_the_items_they_name(
     body = _update(remove_items=[_folder(x), drives[0], _folder(y), drives[1]])
     out = asyncio.run(app.handle_knowledge_source_update(body))
     assert out.items == [_folder()] and out.removed == drives
+
+
+@pytest.mark.parametrize("axis", ["namespace", "person"])
+def test_connected_source_quota_uses_its_own_namespace_and_owner_bounds(
+    fake: _Store, monkeypatch: pytest.MonkeyPatch, axis: str
+) -> None:
+    from dataclasses import replace
+
+    monkeypatch.setattr(
+        settings, "knowledge_connected_sources_max_per_namespace", 1 if axis == "namespace" else 2
+    )
+    monkeypatch.setattr(settings, "knowledge_connected_sources_max_per_person", 1)
+    # Shared credentials consume their separate quota and never stand in for an owner.
+    shared = KnowledgeSource(ORG, NS, "shared", "gdrive", "shared-id")
+    connected = replace(
+        shared,
+        name="connected",
+        source_id="connected-id",
+        credential_mode="connected",
+        owner_subject="person",
+    )
+    fake.rows[(ORG, NS, shared.name)] = shared
+    fake.rows[(ORG, NS, connected.name)] = connected
+    with pytest.raises(ValidationError) as caught:
+        asyncio.run(app._require_free(ORG, NS, "another", owner_subject="person"))
+    assert caught.value.code == "SOURCE_QUOTA"
+    assert ("person" in str(caught.value)) == (axis == "person")
+
+
+def test_shared_source_writer_is_refused_before_probe_or_registry_write(
+    fake: _Store, no_grant_reads: None
+) -> None:
+    from server.core.errors import AuthInsufficientError
+    from tests.unit.principals import acting_as
+
+    with acting_as(_auth(Role.WRITER)), pytest.raises(AuthInsufficientError):
+        asyncio.run(app.handle_knowledge_source_add(_add()))
+    assert fake.rows == {} and fake.probes == []

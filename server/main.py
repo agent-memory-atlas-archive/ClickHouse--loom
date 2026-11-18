@@ -501,7 +501,6 @@ attach_browser_middleware(app)
 http_transport.attach(app)
 mcp_transport.attach(app)
 
-from server.auth import connected_accounts as _connected_accounts  # noqa: E402
 from server.auth import login as _login  # noqa: E402
 from server.auth import oauth as _oauth  # noqa: E402
 from server.auth import scim_routes as _scim_routes  # noqa: E402
@@ -510,6 +509,7 @@ from server.identity.app import agent_claim as _agent_claim  # noqa: E402
 from server.identity.app import claim_release as _claim_release  # noqa: E402
 from server.identity.app import password_link as _password_link  # noqa: E402
 from server.identity.app import scim_groups as _scim_groups  # noqa: E402
+from server.knowledge.app import connection_routes as _connected_accounts  # noqa: E402
 
 _self_signup.attach(app)
 _login.attach(app)

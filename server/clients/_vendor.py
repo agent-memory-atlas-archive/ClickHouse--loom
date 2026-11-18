@@ -146,6 +146,8 @@ async def request_json(
     except httpx.RequestError as e:
         raise VendorError(f"{what}: {type(e).__name__}") from e
     raise_for_status(resp, what)
+    if checked is not None and not resp.is_success:
+        raise VendorError(f"{what}: http_{resp.status_code}", status=resp.status_code)
     return json_object(resp.content, what)
 
 
@@ -219,6 +221,8 @@ async def get_capped(
             if body is None:
                 raise TooLarge(f"{what}: over {max_bytes} bytes")
             raise_for_status(httpx.Response(resp.status_code, content=body), what)
+            if not resp.is_success:
+                raise VendorError(f"{what}: http_{resp.status_code}", status=resp.status_code)
             return body
         except httpx.RequestError as e:
             raise VendorError(f"{what}: {type(e).__name__}") from e

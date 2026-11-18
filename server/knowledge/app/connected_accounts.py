@@ -249,15 +249,10 @@ async def _pending_standing(pending: dict[str, Any]) -> None:
     )
 
 
-async def callback(kind: str, state: str, binding: str, code: str, *, denied: bool = False) -> None:
-    deadline = time.monotonic() + settings.knowledge_connected_oauth_timeout_s
-    async with asyncio.timeout_at(deadline):
-        await _callback(kind, state, binding, code, denied=denied, deadline=deadline)
-
-
-async def _callback(
-    kind: str, state: str, binding: str, code: str, *, denied: bool, deadline: float
-) -> None:
+async def verified_callback_pending(
+    kind: str, state: str, binding: str
+) -> tuple[str, dict[str, Any]]:
+    """Read browser-bound pending authority without consuming it or calling a provider."""
     provider = client(kind)
     if not state or len(state) > 256 or not binding:
         raise unavailable()
@@ -269,12 +264,29 @@ async def _callback(
         or pending.get("provider") != kind
         or pending.get("client_id") != provider.client_id
         or pending.get("redirect_uri") != provider.redirect_uri
+        or not isinstance(pending.get("org"), str)
+        or not pending["org"]
         or not secrets.compare_digest(str(pending.get("binding") or ""), token_id(binding))
     ):
         raise unavailable()
-    pending = await pending_store.take_pending(key)
-    if pending is None or denied or not code or len(code) > 8192:
+    return key, pending
+
+
+async def callback(kind: str, state: str, binding: str, code: str, *, denied: bool = False) -> None:
+    deadline = time.monotonic() + settings.knowledge_connected_oauth_timeout_s
+    async with asyncio.timeout_at(deadline):
+        await _callback(kind, state, binding, code, denied=denied, deadline=deadline)
+
+
+async def _callback(
+    kind: str, state: str, binding: str, code: str, *, denied: bool, deadline: float
+) -> None:
+    provider = client(kind)
+    key, pending = await verified_callback_pending(kind, state, binding)
+    consumed = await pending_store.take_pending(key)
+    if consumed is None or denied or not code or len(code) > 8192:
         raise unavailable()
+    pending = consumed
     await _pending_standing(pending)
     org, subject = pending["org"], pending["subject"]
     async with account_lease(org, subject, kind):

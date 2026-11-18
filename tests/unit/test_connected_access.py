@@ -246,6 +246,7 @@ async def test_redirects_never_forward_the_checkout_even_if_the_client_follows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     requests: list[httpx.Request] = []
+    stream = _Stream([_body(mode)], [])
 
     async def validate() -> None:
         pass
@@ -253,13 +254,16 @@ async def test_redirects_never_forward_the_checkout_even_if_the_client_follows(
     def handle(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         return httpx.Response(
-            302, headers={"Location": "https://untrusted.example/collect"}, content=_body(mode)
+            302, headers={"Location": "https://untrusted.example/collect"}, stream=stream
         )
 
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(handle), follow_redirects=True
     ) as client:
-        await _fetch(mode, _checkout(mode, validate), client, monkeypatch)
+        with pytest.raises((_vendor.VendorError, linear.LinearError)) as caught:
+            await _fetch(mode, _checkout(mode, validate), client, monkeypatch)
+        assert caught.value.status == 302
+    assert stream.closed
     assert len(requests) == 1
     assert requests[0].url.host != "untrusted.example"
     assert requests[0].headers["Authorization"] == "Bearer " + _TOKEN
@@ -343,3 +347,35 @@ def test_a_checkout_cannot_be_converted_or_serialized_as_a_shared_credential() -
     for convert in (str, copy.copy, pickle.dumps):
         with pytest.raises(TypeError):
             convert(access)
+
+
+async def test_project_acl_bound_refuses_a_partial_permission_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    async def validate() -> None:
+        pass
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "project": {
+                        "teams": {
+                            "nodes": [{"id": _ID}, {"id": "22345678-1234-1234-1234-123456789abc"}],
+                            "pageInfo": {"hasNextPage": False},
+                        }
+                    }
+                }
+            },
+        )
+
+    monkeypatch.setattr(_vendor.settings, "knowledge_source_acl_max_entries", 1)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as client:
+        monkeypatch.setattr(linear, "get_client", lambda: client)
+        with pytest.raises(linear.TooLarge):
+            await linear.project_member_emails(_checkout("linear", validate), _ID)
+    assert len(calls) == 1

@@ -294,9 +294,10 @@ the redirect URI registered with the store is built from it, never from a reques
   is held in memory only. The optional display email is sealed separately under
   `connected_accounts.email`; neither value is copied into a source row.
 - Refresh for a source retains its account generation and source binding across provider
-  work. One refresh owns that generation at a time; replacement refresh material is
-  persisted only while both remain active and current. Disconnect, replacement, erasure or
-  deactivation cannot be undone by an older refresh. A cancellation or lost response
+  work. One reservation owns the account generation at a time. A successful rotation
+  is sealed only while the owner, account fence and reservation remain current; source
+  or requesting administrator loss then refuses delivery without discarding that rotation.
+  Disconnect, replacement, erasure or deactivation cannot be undone by an older refresh. A cancellation or lost response
   does not prove the provider left its token unchanged, so a retry needs the provider's
   documented recovery guarantee. Missing expiry metadata does not justify an invented
   lifetime or permanent access-token fallback.
@@ -1130,7 +1131,7 @@ ClickHouse, additive migrations:
 | `loom.documents` (column)          | as today; in a mirror `source_uri` is `<address>#<source id>` | `access_json`: a mirrored document's permission list (`emails`, `owner`, `groups`, `domains`, `anyone`, `unread`); empty elsewhere; under the Postgres authority it rides in the head's `row` jsonb, no migration |
 | `loom.knowledge_source_listings`   | `(org, namespace, source_id)`                                 | `name`, `started_at` (the start of the source's last complete listing), `version`; `namespace` is the mirror                                                                                                      |
 | `loom.knowledge_group_members`     | `(org, namespace, source_id, group)`                          | `name`, `members`, `read_at`, `deleted`, `version`; `namespace` is the mirror                                                                                                                                     |
-| `loom.connected_accounts`          | `(org, subject, kind)`                                        | `account_id`, `account_email`, `scopes`, `credential_enc`, `active`, `connected_at`, `disconnected_at`, `version`                                                                                                 |
+| `loom.connected_accounts`          | `(org, subject, kind)`                                        | `connection_id`, `account_id`, `workspace_id`, `account_email_enc`, `scopes`, `credential_enc`, `active`, `refresh_id`, `connected_at`, `disconnected_at`, `version`                                              |
 
 This is an authentication control registry, keyed by canonical sign-in owner across
 namespaces, like the sign-in and revocation registries. It is not a memory-content row:
@@ -1138,7 +1139,9 @@ namespaces, like the sign-in and revocation registries. It is not a memory-conte
 connection to one requesting session or namespace. Source registrations retain their
 namespace and worker provenance; account changes use the authenticated actor in audit.
 The explicit owner erasure axis covers sealed identity and credential history rather
-than guessing a memory `user_id` from the sign-in subject.
+than guessing a memory `user_id` from the sign-in subject. Auth invokes a required lifecycle
+port; the HTTP and CLI composition roots bind its knowledge implementation before
+accepting mutations. An unbound process refuses retirement rather than skipping it.
 
 The account registry seals its optional display email in `account_email_enc`. Its
 `workspace_id` distinguishes provider workspaces, `connection_id` fences replacement
@@ -1372,7 +1375,7 @@ The redirect URI to register with each store is
 - `server/knowledge/app/sources.py`: the ops.
 - `server/knowledge/app/source_sync.py` and its kind modules: the sync.
 - `server/knowledge/app/source_access.py`: the permission check and the mirror legs.
-- `server/auth/connected_accounts.py`: the connect routes and their store.
+- `server/knowledge/app/connection_routes.py`: the browser consent routes.
 - `server/clients/gdrive.py`, `notion.py`, `linear.py`, `recording.py`: the stores.
 - `server/clients/connected_oauth.py` (`OAuthClient`): fixed-provider consent, code
   exchange, refresh, account metadata and revocation requests. Calls share the caller's

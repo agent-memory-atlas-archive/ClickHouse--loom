@@ -268,8 +268,8 @@ Fields for every `connection` op: [operations/connection.md](operations/connecti
 
 | Operation | Summary | Role | Kind | Listed under `all` | Audit |
 | --- | --- | --- | --- | --- | --- |
-| [`connection.disconnect`](operations/connection.md#connectiondisconnect) |  | viewer | idempotent | no |  |
-| [`connection.list`](operations/connection.md#connectionlist) |  | viewer | read | no |  |
+| [`connection.disconnect`](operations/connection.md#connectiondisconnect) | Disconnect the caller's own provider account and stop its connected sources. | viewer | idempotent | no |  |
+| [`connection.list`](operations/connection.md#connectionlist) | List the signed-in caller's own connected provider accounts. | viewer | read | no |  |
 
 ### consolidations
 

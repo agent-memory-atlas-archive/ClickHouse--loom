@@ -558,6 +558,19 @@
             ]
           }
         },
+        "connection": {
+          "class": "ConnectionOps",
+          "methods": {
+            "disconnect": [
+              "body",
+              "options"
+            ],
+            "list": [
+              "body",
+              "options"
+            ]
+          }
+        },
         "consolidations": {
           "class": "ConsolidationsOps",
           "methods": {

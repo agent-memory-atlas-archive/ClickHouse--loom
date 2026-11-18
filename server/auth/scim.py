@@ -343,9 +343,9 @@ async def _revoke_tokens(row: dict[str, Any], *, previous_subjects: Sequence[str
     # Past the leases, as it may claim many token names. It lists revoked the
     # tokens the revocations kill and frees their names; one made after a
     # reactivation's or an operator's cutoff stays live.
-    from server.knowledge.app.connected_accounts import stop_subjects
+    from server.auth.account_lifecycle import stop_connections
 
-    await stop_subjects(
+    await stop_connections(
         sorted(set(row["subjects"]) | set(previous_subjects)),
         erase_owner=bool(row["deleted"]),
         respect_cutoff=True,
@@ -355,13 +355,13 @@ async def _revoke_tokens(row: dict[str, Any], *, previous_subjects: Sequence[str
 
 async def _repair_failed_connections(row: dict[str, Any], *, erase_owner: bool) -> None:
     """Outside SCIM leases, finish local cleanup without provider work on an error tail."""
-    from server.knowledge.app.connected_accounts import stop_subjects
+    from server.auth.account_lifecycle import stop_connections
 
     async def repair() -> None:
         # Directory discovery and every local cleanup write share the same finite bound.
         async with asyncio.timeout(settings.knowledge_connected_stop_timeout_s):
             subjects = sorted(set(row["subjects"]) | set(await _subjects(row["email"])))
-            await stop_subjects(
+            await stop_connections(
                 subjects, revoke=False, erase_owner=erase_owner, respect_cutoff=True
             )
 

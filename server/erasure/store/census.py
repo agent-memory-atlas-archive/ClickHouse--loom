@@ -3,7 +3,8 @@ that owns it in each scope, and the count that proves a saga left nothing.
 
 `_CENSUS` is the one registry the census, the sagas' step lists and a
 resumed saga's re-opened steps all read; `STEP_ONLY_TABLES` and
-`NO_MEMORY_CONTENT` classify the rest of the schema. One count is not a
+`NO_MEMORY_CONTENT` classify the rest of the schema. `CANONICAL_OWNER_TABLES`
+classifies auth-owner registries erased by their private lifecycle. One count is not a
 table's: `OBJECT_RESIDUE`, the scope's objects in the document bucket, which
 re-opens `documents.tombstone`.
 """

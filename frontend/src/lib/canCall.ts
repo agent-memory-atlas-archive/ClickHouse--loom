@@ -111,11 +111,11 @@ export const OP_MIN_ROLE = {
   // writes (`needsLine`).
   "knowledge.add": WRITER,
   "knowledge.delete": WRITER,
-  "knowledge.source.add": ADMIN,
-  "knowledge.source.check": ADMIN,
+  "knowledge.source.add": WRITER,
+  "knowledge.source.check": WRITER,
   "knowledge.source.rotate": ADMIN,
-  "knowledge.source.remove": ADMIN,
-  "knowledge.source.sync_now": ADMIN,
+  "knowledge.source.remove": WRITER,
+  "knowledge.source.sync_now": WRITER,
   // The Library's gaps tile lists other people's questions.
   "knowledge.gaps.list": ADMIN,
   // Listed for the registry mirror, not yet consulted at a call site: the

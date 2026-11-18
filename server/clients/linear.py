@@ -232,6 +232,8 @@ async def _query(
     except ValueError:
         body = None
     _raise_for(resp.status_code, body, what)
+    if checked is not None and not resp.is_success:
+        raise LinearError(what, f"http_{resp.status_code}", status=resp.status_code)
     data = body.get("data") if isinstance(body, dict) else None
     if not isinstance(data, dict):
         raise LinearError(what, "no_data", status=resp.status_code)

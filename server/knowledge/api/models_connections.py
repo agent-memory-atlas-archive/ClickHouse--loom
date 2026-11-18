@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 
 
 class ConnectionListInput(BaseModel):
+    """List the signed-in caller's own connected provider accounts."""
+
     org: str = Field(description="The caller's organization.")
 
 
@@ -22,6 +24,8 @@ class ConnectionListOutput(BaseModel):
 
 
 class ConnectionDisconnectInput(BaseModel):
+    """Disconnect the caller's own provider account and stop its connected sources."""
+
     org: str = Field(description="The caller's organization.")
     kind: Literal["gdrive", "notion", "linear"] = Field(
         description="The connected provider to disconnect."

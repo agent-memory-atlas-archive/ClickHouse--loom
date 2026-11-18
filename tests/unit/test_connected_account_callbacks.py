@@ -18,7 +18,6 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from server.auth import connected_accounts as routes
 from server.auth.jwt import AuthInfo, mint_token
 from server.auth.oauth_store import ClickHouseStore, token_id
 from server.clients import connected_oauth as provider_wire
@@ -27,6 +26,7 @@ from server.core.errors import AuthInsufficientError, ValidationError
 from server.core.secrets_at_rest import unseal
 from server.erasure.store import census
 from server.knowledge.app import connected_accounts as accounts
+from server.knowledge.app import connection_routes as routes
 from server.knowledge.domain.connected_accounts import CREDENTIAL_PURPOSE, ConnectedAccount
 from server.operations.base import Role
 

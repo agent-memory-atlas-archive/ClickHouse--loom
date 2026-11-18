@@ -62,6 +62,15 @@ _REPO = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(autouse=True)
+def auth_account_lifecycle(monkeypatch):
+    """Direct auth unit calls receive the same mandatory implementation as HTTP/CLI."""
+    from server.auth import account_lifecycle
+    from server.knowledge.app.connected_accounts import stop_subjects
+
+    monkeypatch.setattr(account_lifecycle, "_stopper", stop_subjects)
+
+
+@pytest.fixture(autouse=True)
 def mirror_latch_world(monkeypatch):
     """A fresh control-plane store, separate from a test's business-domain client.
 

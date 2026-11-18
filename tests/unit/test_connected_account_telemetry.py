@@ -10,7 +10,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from server.auth import connected_accounts as routes
+from server.knowledge.app import connection_routes as routes
 from server.observability import otel
 from server.settings import settings
 

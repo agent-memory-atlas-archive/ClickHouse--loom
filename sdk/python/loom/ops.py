@@ -8379,11 +8379,15 @@ class ConflictsResolveOutput(TypedDict, total=False):
 
 
 class ConnectionDisconnectInput(TypedDict, total=False):
+    "Disconnect the caller's own provider account and stop its connected sources."
+
     org: Required[str]
     kind: Required[Literal["gdrive", "notion", "linear"]]
 
 
 class ConnectionDisconnectBody(TypedDict, total=False):
+    "Disconnect the caller's own provider account and stop its connected sources."
+
     org: NotRequired[str]
     kind: Required[Literal["gdrive", "notion", "linear"]]
 
@@ -8393,10 +8397,14 @@ class ConnectionDisconnectOutput(TypedDict, total=False):
 
 
 class ConnectionListInput(TypedDict, total=False):
+    "List the signed-in caller's own connected provider accounts."
+
     org: Required[str]
 
 
 class ConnectionListBody(TypedDict, total=False):
+    "List the signed-in caller's own connected provider accounts."
+
     org: NotRequired[str]
 
 

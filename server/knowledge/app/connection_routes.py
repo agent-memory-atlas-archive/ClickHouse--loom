@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from server.auth import account_lifecycle, tenancy
 from server.auth.bearer import missing_bearer, verify_bearer_header
 from server.auth.oauth_store import PENDING_TTL, token_id
 from server.clients.connected_oauth import OAuthError
 from server.core import request_work
 from server.core.diagnostics import private_work
 from server.knowledge.app import connected_accounts as accounts
+from server.settings import settings
 
 router = APIRouter()
 
@@ -52,7 +55,8 @@ async def callback(kind: str, request: Request) -> JSONResponse:
         request_work.mark_mirrored()
         with private_work():
             try:
-                return await _callback(kind, request)
+                async with asyncio.timeout(settings.knowledge_connected_oauth_timeout_s):
+                    return await _callback(kind, request)
             except (OAuthError, TimeoutError):
                 raise accounts.unavailable() from None
 
@@ -62,10 +66,14 @@ async def _callback(kind: str, request: Request) -> JSONResponse:
     if any(len(query.getlist(key)) > 1 for key in ("state", "code", "error")):
         raise accounts.unavailable()
     state = query.get("state", "")
+    binding = request.cookies.get(_cookie(state), "")
+    _key, pending = await accounts.verified_callback_pending(kind, state, binding)
+    if not await tenancy.is_held(pending["org"]):
+        raise accounts.unavailable()
     await accounts.callback(
         kind,
         state,
-        request.cookies.get(_cookie(state), ""),
+        binding,
         query.get("code", ""),
         denied=bool(query.get("error")),
     )
@@ -76,4 +84,5 @@ async def _callback(kind: str, request: Request) -> JSONResponse:
 
 
 def attach(app: FastAPI) -> None:
+    account_lifecycle.bind(accounts.stop_subjects)
     app.include_router(router)

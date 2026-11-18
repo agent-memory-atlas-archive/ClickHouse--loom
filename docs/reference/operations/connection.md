@@ -10,6 +10,8 @@ Every op is `POST /v1/<op>` over HTTP and the MCP tool `loom_<op>`. The identity
 
 ## `connection.disconnect`
 
+Disconnect the caller's own provider account and stop its connected sources.
+
 `POST /v1/connection.disconnect` · MCP `loom_connection_disconnect` · role `viewer` · idempotent · not listed under the MCP `all` toolset
 
 | Input field | Type | Default | Meaning |
@@ -22,6 +24,8 @@ Every op is `POST /v1/<op>` over HTTP and the MCP tool `loom_<op>`. The identity
 | `disconnected` | `bool` |  |
 
 ## `connection.list`
+
+List the signed-in caller's own connected provider accounts.
 
 `POST /v1/connection.list` · MCP `loom_connection_list` · role `viewer` · read · not listed under the MCP `all` toolset
 
