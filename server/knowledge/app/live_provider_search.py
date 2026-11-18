@@ -6,6 +6,7 @@ import asyncio
 import math
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -159,10 +160,16 @@ def _drive_member(source: KnowledgeSource, ident: str, row: dict[str, Any]) -> b
             or not name.casefold().startswith(item["name_contains"].casefold())
         ):
             continue
-        if "modified_after" in item and (
-            not isinstance(modified, str) or modified <= item["modified_after"] + "T00:00:00"
-        ):
-            continue
+        if "modified_after" in item:
+            if not isinstance(modified, str) or not gdrive.valid_stamp(modified):
+                continue
+            try:
+                at = datetime.fromisoformat(modified)
+                cutoff = datetime.fromisoformat(item["modified_after"]).replace(tzinfo=UTC)
+            except ValueError:
+                continue
+            if at <= cutoff:
+                continue
         return True
     return False
 

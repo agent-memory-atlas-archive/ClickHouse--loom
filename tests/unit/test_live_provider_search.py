@@ -97,6 +97,50 @@ async def test_drive_search_quotes_query_and_refuses_a_hit_moved_out_of_its_filt
     assert len(calls) == 2
 
 
+@pytest.mark.parametrize(
+    ("modified", "expected"),
+    [
+        ("2026-11-01T00:00:00Z", False),
+        ("2026-11-01T00:00:00.000Z", False),
+        ("2026-10-31T23:59:59.999999Z", False),
+        ("2026-11-01T00:00:00.000001Z", True),
+        ("2026-11-02T00:00:00Z", True),
+        ("not-a-date", False),
+        ("2026-13-99T00:00:00Z", False),
+        ("2026-11-01T00:00:00", False),
+    ],
+)
+async def test_drive_revalidation_excludes_the_strict_modification_cutoff(
+    monkeypatch: pytest.MonkeyPatch, modified: str, expected: bool
+) -> None:
+    source = _source("gdrive", [{"type": "filter", "modified_after": "2026-11-01"}])
+    access = _access("gdrive")
+    hit = live.LiveProviderHit(
+        "file12345678", "Plan", "https://docs.google.com/document/d/file12345678/edit", "gdrive"
+    )
+    calls = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        assert request.url.path.endswith("/files/" + hit.id)
+        return httpx.Response(
+            200,
+            json={
+                "id": hit.id,
+                "name": hit.title,
+                "mimeType": "application/vnd.google-apps.document",
+                "trashed": False,
+                "parents": [],
+                "modifiedTime": modified,
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        monkeypatch.setattr(live, "get_client", lambda: client)
+        assert await live.revalidate(source, access, hit, deadline=access.deadline) is expected
+    assert len(calls) == 1
+
+
 async def test_notion_search_filters_native_pages_and_rechecks_database_membership(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
