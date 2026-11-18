@@ -388,7 +388,8 @@ async def cluster_peers(
         near = [
             c for c in await ch.query_all(_nearest_sql(), params=params) if 1 - c["dist"] >= floor
         ]
-    anchored = await ch.query_all(_ANCHORED_SQL, params={**params, "same_lim": half})
+    with vector_work(str(row["org"]), str(row["namespace"]), 2):
+        anchored = await ch.query_all(_ANCHORED_SQL, params={**params, "same_lim": half})
     above_floor = {key_identity(c) for c in near}
     found = {key_identity(c): c for c in [*anchored, *near]}
     if not found:
