@@ -9353,11 +9353,27 @@ export interface SearchQueryInput {
   recipe?: "" | "fast" | "balanced" | "quality" | "verbatim" | "code" | "temporal" | "graph";
   bodies?: "full" | "excerpt" | "none" | "unit";
   explain?: boolean;
+  live?: boolean;
   page?: string;
+}
+
+export interface LiveSearchResults {
+  live?: true;
+  results?: LiveSearchHit[];
+}
+
+export interface LiveSearchHit {
+  id: string;
+  title: string;
+  url: string;
+  provider: "gdrive" | "notion" | "linear";
+  content?: string;
+  live?: true;
 }
 
 export interface SearchQueryOutput {
   tracker?: Record<string, unknown> | null;
+  live?: LiveSearchResults | null;
   memory?: Record<string, unknown>;
   knowledge?: Record<string, unknown>;
   profile?: Record<string, unknown>;
