@@ -403,6 +403,7 @@ async def test_public_bisect_joins_owned_prefetch_before_duplicate_refusal(
     async def named_or_prefetch(*args, **kwargs):
         task = asyncio.create_task(pending())
         state.tasks.add(task)
+        kwargs["owned"].append(task)
         return [], task
 
     monkeypatch.setattr(state.module, "_named_or_prefetch", named_or_prefetch)

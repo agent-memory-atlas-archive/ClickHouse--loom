@@ -622,6 +622,7 @@ async def _named_or_prefetch(
     introduced: str,
     before: Any,
     report_text: str,
+    owned: list[asyncio.Future[Any]],
 ) -> tuple[list[bi.Candidate], Any]:
     """The graph's named cause, else the fusion's window reads started early.
 
@@ -641,13 +642,15 @@ async def _named_or_prefetch(
             text=report_text,
         )
     )
+    if prefetch is not None:
+        owned.append(prefetch)
     named: list[bi.Candidate] = []
     if source is not None and facts.qa_ok and facts.caused and not introduced and not input.rescan:
         try:
             named = await _graph_named(source, org, tracker_ns, facts.caused)
         except BaseException:
             if prefetch is not None:
-                prefetch.cancel()  # the caller never receives it to cancel
+                prefetch.cancel()  # the outer owner retains it through cleanup
             raise
     if named and prefetch is not None:
         prefetch.cancel()
@@ -811,9 +814,8 @@ async def _run_bisect(
         introduced=introduced,
         before=before,
         report_text=report_text,
+        owned=owned,
     )
-    if prefetch is not None:
-        owned.append(prefetch)
     fix_pr, widening = await _resolve_fix(input, facts, widening, source, org, tracker_ns)
     plan = _plan(
         input, resolved=resolved, widening=widening, frames=frames, patterns=patterns, facts=facts

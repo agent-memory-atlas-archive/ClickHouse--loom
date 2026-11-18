@@ -582,10 +582,4 @@ async def ask(
             failed = True
             raise
         finally:
-            if not _knowledge_task.done():
-                try:
-                    await cancel_and_drain(_knowledge_task)
-                except asyncio.CancelledError:
-                    # Join the child, then preserve an already propagating failure.
-                    if not failed:
-                        raise
+            await cancel_and_drain(_knowledge_task, preserve_failure=failed)

@@ -638,8 +638,8 @@ async def _probe_vector_state(client: CHClient) -> None:
     """The vector read state (does every replica know the codes setting, which
     columns are coded, which tables carry patch parts) is probed by whichever
     process connects first, not only by the server's lifespan, so CLIs and
-    benches build the same reads as the server. Once per process; a reconnect
-    skips it. Unit tests (fake clients) replace this function."""
+    benches build the same reads as the server. Successful probes are reused;
+    a reconnect retries unset advisory state. Unit tests replace this function."""
     from server.core.vectors.codes_state import ensure_probed
 
     await ensure_probed(client)
@@ -909,7 +909,9 @@ class CHClient:
         # Settled before any task can use it: a reconnect publishes it only now.
         await _turn_off_unsafe_condition_cache(client)
         self._client = client
-        await _probe_vector_state(self)
+        # Metadata stays scalar while the interrupted statement retains its charge.
+        with vector_work("", (), 0):
+            await _probe_vector_state(self)
 
     async def disconnect(self) -> None:
         self._ensure_state()
