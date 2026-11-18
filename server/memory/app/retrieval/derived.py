@@ -11,6 +11,8 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from server.core.errors import VectorCapacityError
+from server.core.vectors.admission import vector_work
 from server.core.vectors.search_settings import vector_search_settings
 from server.memory.app.search_llm import expand_verb_synonyms
 from server.memory.domain.search_parsing import _iso_date, expand_predicate_class
@@ -276,18 +278,21 @@ async def _resolve_operand_event_date(
         {vector_search_settings(table="loom.memory_embeddings")}
     """
     try:
-        rows = await ch.query_all(
-            sql,
-            params={
-                "q": operand_vec,
-                "org": org,
-                "ns": namespace,
-                "agent": agent,
-                **({"run_id": run_id} if run_id else {}),
-                "uid": user_id or "-",
-                "model": embedding_model,
-            },
-        )
+        with vector_work(org, namespace):
+            rows = await ch.query_all(
+                sql,
+                params={
+                    "q": operand_vec,
+                    "org": org,
+                    "ns": namespace,
+                    "agent": agent,
+                    **({"run_id": run_id} if run_id else {}),
+                    "uid": user_id or "-",
+                    "model": embedding_model,
+                },
+            )
+    except VectorCapacityError:
+        raise
     except Exception as e:  # noqa: BLE001 — a failed operand read means no date answer
         log.warning("_resolve_operand_event_date failed (fail-open): %s", e)
         return None
@@ -411,7 +416,10 @@ async def fetch_current_state_observation(
         {vector_search_settings(table="loom.memory_embeddings")}
     """
     try:
-        rows = await ch.query_all(sql, params=params)
+        with vector_work(org, namespace):
+            rows = await ch.query_all(sql, params=params)
+    except VectorCapacityError:
+        raise
     except Exception as e:  # noqa: BLE001 — the current-state leg is additive; fail open
         log.warning("fetch_current_state_observation failed (fail-open): %s", e)
         return []

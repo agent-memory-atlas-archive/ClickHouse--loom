@@ -4,12 +4,12 @@ the entry's write and tombstone."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
 import time
 import uuid
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,7 +22,9 @@ from server.code.app.answers_entry import (
     normalize_question,
 )
 from server.code.store.index import CodeRepo, build_row
+from server.core.errors import VectorCapacityError
 from server.core.shielded import shielded
+from server.core.vectors.private_first import each
 from server.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -97,11 +99,19 @@ class _Lookup:
 async def _serve_from_cache(ctx: _AskCtx) -> _Lookup:
     """Own namespace's semantic entry, else the exact question's cached
     abstain, else the release branch's trunk entry. Fails open to a miss."""
+
+    async def _read(call: Awaitable[Any]) -> Any:
+        return await call
+
     try:
-        (outcome, row, sim), negative = await asyncio.gather(
-            _semantic(ctx, ctx.ns, verify_ns=ctx.ns, own=True),
-            _negative(ctx),
+        (outcome, row, sim), negative = await each(_read)(
+            [
+                _semantic(ctx, ctx.ns, verify_ns=ctx.ns, own=True),
+                _negative(ctx),
+            ]
         )
+    except VectorCapacityError:
+        raise
     except Exception as e:  # noqa: BLE001 — a cache read never sinks the ask
         logger.debug("code.ask cache read failed: %s", e)
         return _Lookup("miss")
@@ -250,6 +260,8 @@ async def _reuse_from_trunk(ctx: _AskCtx) -> _Lookup | None:
         return None
     try:
         outcome, row, sim = await _semantic(ctx, trunk, verify_ns=ctx.ns, own=False)
+    except VectorCapacityError:
+        raise
     except Exception as e:  # noqa: BLE001 — the trunk cache is an optimization: a miss
         logger.debug("code.ask trunk cache read failed: %s", e)
         return None

@@ -17,6 +17,7 @@ from server.code.app.spans import code_span, span_attrs
 from server.code.domain.index import query_trim
 from server.code.domain.search_scope import SearchScope
 from server.code.store.index import CodeRepo
+from server.core.errors import VectorCapacityError
 from server.settings import settings
 from server.settings.budgets import llm_max_tokens
 
@@ -94,6 +95,8 @@ async def _card_leg_rows(
                         int(r.get("start_line") or 0),
                     )
                 )
+        except VectorCapacityError:
+            raise
         except Exception as e:  # noqa: BLE001 — a vote, never a gate
             logger.warning("code.search card leg failed: %s", e)
             work["card_leg_failed"] = 1
@@ -226,6 +229,8 @@ async def _card_and_concept_rows(
                     pool=pool,
                     skip_tests=True,
                 )
+            except VectorCapacityError:
+                raise
             except Exception as e:  # noqa: BLE001 — a vote, never a gate
                 logger.warning("code.search card term read failed: %s", e)
                 return []

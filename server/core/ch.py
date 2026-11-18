@@ -47,10 +47,18 @@ from server.core.ch_schema_guard import guard_pending_schema
 from server.core.ch_statement_text import capture_statement, statement_digest, statement_shape
 from server.core.ch_target import connection_kwargs
 from server.core.ch_writes import dedup_settings, insert_dedup_token
-from server.core.errors import OverloadedError
+from server.core.errors import OverloadedError, VectorOverloadedError
+from server.core.shielded import to_its_end
 from server.core.sql_comments import LEADING_COMMENTS
 from server.core.sql_literal import sql_string
 from server.core.traffic_context import traffic_class_var
+from server.core.vectors.admission import (
+    admit,
+    current_work,
+    native_settings,
+    raise_native,
+    vector_work,
+)
 from server.settings import settings
 
 log = logging.getLogger(__name__)
@@ -534,13 +542,48 @@ def statement_settings(
         # collide with them.
         out.pop("max_execution_time", None)
         out.update(analyst[2])
+        if current_work() is not None:
+            native_settings(out, timeout=vector_timeout_s())
         return _with_request_query_id(out)
     tclass = traffic_class_var.get()[0]
     if tclass and is_read_statement(sql):
         for name, value in traffic_class_settings(tclass).items():
             out.setdefault(name, value)
     _apply_caller_ceilings(out, cls)
+    if current_work() is not None:
+        native_settings(out, timeout=vector_timeout_s())
     return _with_request_query_id(out)
+
+
+def vector_timeout_s() -> float:
+    """A vector attempt always has a finite deadline, even with class limits off."""
+    limit = class_timeout_s("read")
+    ceiling = float(settings.ch_caller_shaped_max_execution_s)
+    if not math.isfinite(ceiling) or ceiling <= 0:
+        from server.core.errors import VectorAdmissionError
+
+        raise VectorAdmissionError("vector native deadline is unavailable", reason="configuration")
+    return min(limit, ceiling) if math.isfinite(limit) and limit > 0 else ceiling
+
+
+async def _close_vector_stream(stream: Any, failure: BaseException | None) -> None:
+    """Finish driver close without replacing the consumer's first failure."""
+    try:
+        await to_its_end(
+            stream.__aexit__(
+                type(failure) if failure is not None else None,
+                failure,
+                failure.__traceback__ if failure is not None else None,
+            ),
+            name="vector-stream-close",
+        )
+    except asyncio.CancelledError:
+        if failure is None:
+            raise
+    except Exception as close_error:
+        if failure is None:
+            raise
+        log.warning("vector stream cleanup failed (%s)", type(close_error).__name__)
 
 
 def _untagged_caller() -> str:
@@ -812,6 +855,10 @@ class CHClient:
         if "_reconnect_lock" not in d:
             d["_reconnect_lock"] = asyncio.Lock()
 
+    def vector_pool_ready(self) -> bool:
+        """The bounded pool gate exists; checking it allocates and acquires nothing."""
+        return self.__dict__.get("_slots") is not None
+
     @property
     def connected(self) -> bool:
         return self._client is not None
@@ -934,7 +981,8 @@ class CHClient:
         global _POOL_TIMEOUTS_TOTAL
         gen = int(self._generation)
         self._inflight[gen] = self._inflight.get(gen, 0) + 1
-        limit = class_timeout_s(cls)
+        limit = vector_timeout_s() if current_work() is not None else class_timeout_s(cls)
+        failure: BaseException | None = None
         try:
             if limit <= 0:
                 return await fn()
@@ -953,14 +1001,32 @@ class CHClient:
                     cls,
                     limit,
                 )
+                if current_work() is not None:
+                    from server.core.errors import VectorAdmissionError
+
+                    raise VectorAdmissionError(
+                        "the complete vector read exceeded its deadline",
+                        reason="deadline",
+                        retry_after_s=1,
+                    ) from None
                 raise BackendTimeoutError(
                     f"ClickHouse {cls} statement exceeded {limit:g} s",
                     statement_class=cls,
                     timeout_s=limit,
                 ) from None
+        except BaseException as error:
+            failure = error
+            raise
         finally:
             self._inflight[gen] = self._inflight.get(gen, 1) - 1
-            await self._retire_if_done(gen)
+            if current_work() is None:
+                await self._retire_if_done(gen)
+            else:
+                try:
+                    await to_its_end(self._retire_if_done(gen), name="vector-generation-retirement")
+                except asyncio.CancelledError:
+                    if failure is None:
+                        raise
 
     async def _acquire_slot(self, op_name: str) -> bool:
         """Take one pool slot or raise 503 OVERLOADED after `ch_pool_wait_ms`.
@@ -1031,6 +1097,7 @@ class CHClient:
         try:
             return await self._attempts(op_name, fn, cls=cls)
         except Exception as e:
+            raise_native(e)
             if is_shared_memory_limit(e):
                 raise _short_of_memory(op_name, e) from e
             raise
@@ -1040,6 +1107,7 @@ class CHClient:
         try:
             return await self._bounded(op_name, cls, fn)
         except Exception as e:
+            raise_native(e)
             if is_transient_network_error(e):
                 log.warning(
                     "ch %s: transient %s, reconnecting and retrying",
@@ -1050,6 +1118,7 @@ class CHClient:
                     await self._reconnect(seen)
                     return await self._bounded(op_name, cls, fn)
                 except Exception as retry_error:
+                    raise_native(retry_error)
                     if not is_transient_network_error(retry_error):
                         raise
                     from server.core.errors import BackendUnavailableError
@@ -1075,6 +1144,7 @@ class CHClient:
                 try:
                     return await self._bounded(op_name, cls, fn)
                 except Exception as e2:
+                    raise_native(e2)
                     if not is_replica_bound_error(e2):
                         raise
                     last = e2
@@ -1094,6 +1164,19 @@ class CHClient:
         return dict(zip(result.column_names, rows[0], strict=False))
 
     async def _query_fail_open(self, op_name: str, sql: str, params: dict[str, Any] | None) -> Any:
+        if current_work() is None:
+            return await self._query_attempts(op_name, sql, params)
+        async with admit(pool_ready=self.vector_pool_ready(), wait_s=vector_timeout_s()):
+            try:
+                return await self._query_attempts(op_name, sql, params)
+            except OverloadedError as error:
+                raise VectorOverloadedError(
+                    "the bounded ClickHouse gate is busy",
+                    reason="pool",
+                    retry_after_s=1,
+                ) from error
+
+    async def _query_attempts(self, op_name: str, sql: str, params: dict[str, Any] | None) -> Any:
         """Run a SELECT with the standard retry; if the server rejects the
         quantized-codes setting (a replica that does not know it), turn the
         setting off for this process and run the query once
@@ -1110,7 +1193,8 @@ class CHClient:
             note_result_summary(res)
             return res
 
-        await guard_pending_schema(op_name, sql, "read")
+        with vector_work("", (), 0):
+            await guard_pending_schema(op_name, sql, "read")
         try:
             return await self._with_retry(op_name, lambda: _q(sql), cls="read")
         except Exception as e:
@@ -1179,6 +1263,36 @@ class CHClient:
         *,
         settings: dict[str, Any] | None = None,
     ) -> AsyncIterator[AsyncIterator[bytes]]:
+        if current_work() is None:
+            async with self._raw_stream_query(sql, params, settings=settings) as body:
+                yield body
+            return
+        ready = self.vector_pool_ready() and self.__dict__.get("_stream_slots") is not None
+        async with admit(pool_ready=ready, wait_s=vector_timeout_s()):
+            try:
+                async with self._raw_stream_query(sql, params, settings=settings) as body:
+                    # Permission checks consuming a batch are separate scalar reads.
+                    # The stream keeps its reservation while their attribution is clear.
+                    with vector_work("", (), 0):
+                        yield body
+            except OverloadedError as error:
+                raise VectorOverloadedError(
+                    "the bounded streaming gate is busy",
+                    reason="pool",
+                    retry_after_s=1,
+                ) from error
+            except Exception as error:
+                raise_native(error)
+                raise
+
+    @asynccontextmanager
+    async def _raw_stream_query(
+        self,
+        sql: str,
+        params: dict[str, Any] | None = None,
+        *,
+        settings: dict[str, Any] | None = None,
+    ) -> AsyncIterator[AsyncIterator[bytes]]:
         """A SELECT's output as raw byte chunks (`FORMAT RawBLOB` for one String value), for
         a body too large to buffer. Opening is retried like any read; the stream holds one
         of the `STREAM_SLOTS` until the block exits, not a pool slot, since the client sets
@@ -1203,17 +1317,43 @@ class CHClient:
             return stream
 
         self._ensure_state()
-        await guard_pending_schema("raw_stream", sql, "read")
+        with vector_work("", (), 0):
+            await guard_pending_schema("raw_stream", sql, "read")
         await acquire_slot(self._stream_slots, "streaming read")
+        failure: BaseException | None = None
         try:
             stream = await self._retry_ladder("raw_stream", _open, cls="read")
-            async with stream:
-                yield stream
+            if current_work() is None:
+                async with stream:
+                    yield stream
+            else:
+                await stream.__aenter__()
+                try:
+                    yield stream
+                except BaseException as error:
+                    failure = error
+                    raise
+                finally:
+                    await _close_vector_stream(stream, failure)
+        except BaseException as error:
+            failure = error
+            raise
         finally:
-            for gen in held:
-                self._inflight[gen] = self._inflight.get(gen, 1) - 1
-                await self._retire_if_done(gen)
-            self._stream_slots.release()
+            try:
+                for gen in held:
+                    self._inflight[gen] = self._inflight.get(gen, 1) - 1
+                    if current_work() is None:
+                        await self._retire_if_done(gen)
+                    else:
+                        try:
+                            await to_its_end(
+                                self._retire_if_done(gen), name="vector-stream-retirement"
+                            )
+                        except asyncio.CancelledError:
+                            if failure is None:
+                                raise
+            finally:
+                self._stream_slots.release()
 
     async def execute(
         self,

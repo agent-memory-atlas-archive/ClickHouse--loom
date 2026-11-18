@@ -8,6 +8,7 @@ import logging
 from dataclasses import replace
 from typing import Any
 
+from server.core.errors import VectorCapacityError
 from server.memory.api.models_search import _MemorySearchHit
 from server.memory.app.search.context import SearchContext
 from server.memory.app.search.vector_legs import _search_query_for, _wire_hit
@@ -95,6 +96,8 @@ async def _run_set_expansion(ctx: SearchContext) -> None:
         per_phrase = await asyncio.gather(
             *[_supplemental_leg(ctx, ph, leg_top_k, seen_keys) for ph in phrases]
         )
+    except VectorCapacityError:
+        raise
     except Exception as e:  # noqa: BLE001 — additive legs
         log.warning("set expansion legs failed (non-fatal): %s", e)
         return

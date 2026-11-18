@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from server.core import bm25
 from server.core.ch import CHClient, get_client, set_query_tag
+from server.core.vectors.admission import vector_work
 from server.knowledge.domain.live_chunks import live_chunk_sql
 
 Leg = Literal["semantic", "lexical", "keys"]
@@ -176,6 +177,7 @@ async def candidates(
     sql: str, params: dict[str, Any], *, ch: CHClient | None = None
 ) -> AsyncIterator[AsyncIterator[dict[str, Any]]]:
     set_query_tag("knowledge.mirror.candidates")
-    async with (ch or get_client()).raw_stream(sql, params) as body:
-        async with aclosing(_rows(body)) as rows:
-            yield rows
+    with vector_work(str(params["org"]), list(params["nss"])):
+        async with (ch or get_client()).raw_stream(sql, params) as body:
+            async with aclosing(_rows(body)) as rows:
+                yield rows
